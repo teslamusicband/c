@@ -1,0 +1,108 @@
+#!/bin/bash
+set -xuevo pipefail
+
+# Установите переменные
+GITLAB_SERVER="http://gitlab.myserver.local"
+GITLAB_TOKEN="ваш_персональный_токен"
+GROUP_PATH="mygroupofprojects" # Укажите путь к вашей основной группе
+EXPORT_DIR="./gitlab_exports" # Директория для экспорта
+
+# Создаем основной каталог для экспорта
+mkdir -p "$EXPORT_DIR"
+
+# Функция для экспорта проекта
+export_project() {
+    project_id="$1"
+    project_name="$2"
+
+    # Запускаем экспорт проекта
+    echo "Запускаем экспорт проекта $project_name с ID $project_id"
+    response=$(curl --silent --request POST --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_SERVER/api/v4/projects/$project_id/export")
+    echo "Ответ API: $response"
+
+    # Проверяем статус экспорта
+    status=$(echo "$response" | jq -r '.export_status')
+
+    if [[ "$status" == "none" ]]; then
+        echo "Экспорт не был инициализирован для проекта $project_name. Пожалуйста, проверьте настройки проекта."
+        return
+    fi
+
+    while true; do
+        status=$(curl --silent --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_SERVER/api/v4/projects/$project_id/export" | jq -r '.export_status')
+        
+        if [[ "$status" == "finished" ]]; then
+            echo "Экспорт завершен для проекта $project_name"
+            break
+        elif [[ "$status" == "failed" ]]; then
+            echo "Ошибка экспорта для проекта $project_name"
+            return
+        else
+            echo "Ожидание завершения экспорта для $project_name..."
+            sleep 5
+        fi
+    done
+
+    # Получаем путь с именем пространства проекта
+    path_with_namespace=$(curl --silent --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_SERVER/api/v4/projects/$project_id" | jq -r '.path_with_namespace')
+
+    # Получаем ссылку для скачивания экспортированного файла
+    download_url=$(curl --silent --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_SERVER/api/v4/projects/$project_id/export" | jq -r '._links.api_url')
+
+    # Проверка ссылки для скачивания
+    if [[ "$download_url" == "null" ]]; then
+        echo "Ошибка: ссылка для скачивания не найдена для проекта $project_name."
+    else
+        # Создаем каталог для проекта
+        export_path="$EXPORT_DIR/$path_with_namespace"
+        mkdir -p "$export_path"
+
+        echo "Скачиваем экспортированный проект из $download_url в $export_path/$project_name.tar.gz"
+        curl --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$download_url" --output "$export_path/$project_name.tar.gz"
+        echo "Проект $project_name экспортирован в $export_path/$project_name.tar.gz"
+    fi
+}
+
+# Рекурсивная функция для обработки групп и проектов
+process_group() {
+    group_id="$1"
+    parent_path="$2"
+
+    # Получаем подгруппы
+    subgroups=$(curl --silent --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_SERVER/api/v4/groups/$group_id/subgroups")
+
+    # Обрабатываем каждую подгруппу
+    echo "$subgroups" | jq -c '.[]' | while IFS= read -r subgroup; do
+        subgroup_id=$(echo "$subgroup" | jq -r '.id')
+        subgroup_name=$(echo "$subgroup" | jq -r '.name')
+
+        # Рекурсивно обрабатываем подгруппу
+        process_group "$subgroup_id" "$subgroup_name"
+    done
+
+    # Получаем проекты в текущей группе
+    projects=$(curl --silent --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_SERVER/api/v4/groups/$group_id/projects")
+
+    # Проверяем, есть ли проекты в группе, прежде чем продолжить
+    if [[ $(echo "$projects" | jq -r 'length') -eq 0 ]]; then
+        echo "Группа $parent_path не содержит проектов. Пропускаем..."
+        return
+    fi
+
+    # Обрабатываем каждый проект
+    echo "$projects" | jq -c '.[]' | while IFS= read -r project; do
+        project_id=$(echo "$project" | jq -r '.id')
+        project_name=$(echo "$project" | jq -r '.name')
+
+        # Экспортируем проект
+        export_project "$project_id" "$project_name"
+    done
+}
+
+# Получаем ID основной группы
+root_group_id=$(curl --silent --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "$GITLAB_SERVER/api/v4/groups?search=$GROUP_PATH" | jq -r --arg GROUP_PATH "$GROUP_PATH" '.[] | select(.name == $GROUP_PATH) | .id')
+
+# Запускаем процесс экспорта для основной группы
+process_group "$root_group_id" "$GROUP_PATH"
+
+echo "Все проекты из группы $GROUP_PATH экспортированы в каталог $EXPORT_DIR."
