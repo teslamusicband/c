@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# Установите переменные
+GITLAB_SERVER="http://gitlab.myserver.local"
+GITLAB_TOKEN="ваш_персональный_токен"
+GROUP_ID="your_group_id"  # Используйте полученный ранее ID группы
+
+# Функция для получения всех проектов в группе
+get_all_projects() {
+    local page=1
+    local per_page=100
+    local projects=""
+
+    while : ; do
+        # Получаем список проектов с указанной страницы
+        response=$(curl --silent --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+            "$GITLAB_SERVER/api/v4/groups/$GROUP_ID/projects?per_page=$per_page&page=$page")
+
+        # Если ответ пустой, выходим из цикла
+        [ -z "$response" ] && break
+
+        # Добавляем результаты текущей страницы к проектам
+        projects+="$response"
+
+        # Проверяем, если меньше 100 проектов на текущей странице, значит, это последняя страница
+        project_count=$(echo "$response" | jq length)
+        if [ "$project_count" -lt "$per_page" ]; then
+            break
+        fi
+
+        # Переходим к следующей странице
+        page=$((page + 1))
+    done
+
+    echo "$projects" | jq -c '.[]'
+}
+
+# Вызываем функцию и выводим все проекты
+projects=$(get_all_projects)
+echo "Все проекты в группе:"
+echo "$projects" | jq -r '.name'
