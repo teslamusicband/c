@@ -1,0 +1,62 @@
+Порядок действий:
+
+1. **Создание сертификатов**:
+   - Сгенерируйте самоподписанный корневой сертификат (CA):
+     ```
+     openssl req -new -x509 -keyout ca-key -out ca-cert -days 365
+     ```
+   - Создайте серверные сертификаты для брокеров Kafka:
+     ```
+     openssl req -newkey rsa:2048 -nodes -keyout server-key -out server-req
+     openssl x509 -req -in server-req -CA ca-cert -CAkey ca-key -CAcreateserial -out server-cert -days 365
+     ```
+   - Создайте клиентские сертификаты для приложений, подключающихся к Kafka:
+     ```
+     openssl req -newkey rsa:2048 -nodes -keyout client-key -out client-req 
+     openssl x509 -req -in client-req -CA ca-cert -CAkey ca-key -CAcreateserial -out client-cert -days 365
+     ```
+
+2. **Настройка Kafka**:
+   - В конфигурационных файлах брокеров Kafka (server.properties) добавьте:
+     ```
+     listeners=SASL_SSL://broker1:9093,SASL_SSL://broker2:9093,SASL_SSL://broker3:9093
+     security.inter.broker.protocol=SASL_SSL
+     ssl.keystore.location=/path/to/server.keystore.jks
+     ssl.keystore.password=server_keystore_password
+     ssl.truststore.location=/path/to/server.truststore.jks
+     ssl.truststore.password=server_truststore_password
+     sasl.enabled.mechanisms=SCRAM-SHA-256,SCRAM-SHA-512
+     sasl.mechanism.inter.broker.protocol=SCRAM-SHA-256
+     ```
+   - Создайте Java KeyStores для серверных и клиентских сертификатов:
+     ```
+     keytool -keystore server.keystore.jks -alias broker -validity 365 -genkey
+     keytool -keystore server.truststore.jks -alias CARoot -import -file ca-cert
+     keytool -keystore client.keystore.jks -alias client -validity 365 -genkey
+     keytool -keystore client.truststore.jks -alias CARoot -import -file ca-cert
+     ```
+
+3. **Настройка SASL SCRAM авторизации**:
+   - Создайте учетные записи пользователей и их секретные ключи:
+     ```
+     bin/kafka-configs.sh --zookeeper zookeeper:2181 --alter --add-config 'SCRAM-SHA-256=[username1=password1,username2=password2]' --entity-type users --entity-name clients
+     ```
+   - Обновите конфигурацию клиентов, чтобы использовать SASL/SCRAM авторизацию:
+     ```
+     security.protocol=SASL_SSL
+     sasl.mechanism=SCRAM-SHA-256
+     sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+                     username="username1" \
+                     password="password1";
+     ```
+
+4. **Валидация и тестирование**:
+   - Проверьте подключение к Kafka через командную строку:
+     ```
+     bin/kafka-console-producer.sh --broker-list broker1:9093,broker2:9093,broker3:9093 --topic my-topic --producer.config client-config.properties
+     ```
+   - Протестируйте подключение клиентских приложений с использованием предоставленной конфигурации.
+
+Это базовая инструкция по настройке SSL и SASL/SCRAM авторизации для Kafka с кластером kRaft. Убедитесь, что все пути к сертификатам и пароли заполнены корректно. Также не забудьте распространить необходимые сертификаты и доверенные сертификаты среди всех узлов кластера и клиентских приложений.
+
+Дайте мне знать, если вам нужна какая-либо дополнительная информация или разъяснения по этому процессу.
