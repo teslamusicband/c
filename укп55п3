@@ -1,0 +1,39 @@
+node.id=1
+broker.id=1
+process.roles=broker,controller
+controller.quorum.voters=1@srv1.company.com:9093,2@srv2.company.com:9093,3@srv3.company.com:9093
+listeners=SASL_SSL://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093
+advertised.listeners=SASL_SSL://srv1.company.com:9094
+listener.security.protocol.map=BROKER:SASL_SSL,CONTROLLER:SASL_SSL
+inter.broker.listener.name=SASL_SSL
+controller.listener.names=CONTROLLER
+security.inter.broker.protocol=SASL_SSL
+
+# SSL settings
+ssl.keystore.location=/etc/kafka/kafka.broker1.keystore.jks
+ssl.keystore.password=password
+ssl.key.password=password
+ssl.truststore.location=/etc/kafka/kafka.broker1.truststore.jks
+ssl.truststore.password=password
+
+# SASL
+sasl.enabled.mechanisms=SCRAM-SHA-256,SCRAM-SHA-512
+sasl.mechanism.inter.broker.protocol=SCRAM-SHA-256
+sasl.mechanism.controller.protocol=SCRAM-SHA-256
+
+# Performance Optimizations
+num.io.threads=24
+num.network.threads=48
+socket.receive.buffer.bytes=104857600  # 100 MB
+socket.send.buffer.bytes=104857600  # 100 MB
+socket.request.max.bytes=104857600  # 100 MB
+
+# Logging
+log.segment.bytes=536870912  # 512 MB
+log.retention.hours=168  # 7 days
+log.flush.interval.ms=10000  # 10 seconds
+log.dirs=/opt/kafka_log
+
+# Transaction settings
+transaction.state.log.replication.factor=3
+transaction.state.log.min.isr=2
