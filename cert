@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# Каталог для хранения сертификатов Octavia
+CERT_DIR="/etc/kolla/config/octavia"
+mkdir -p "$CERT_DIR"
+
+# Данные для сертификатов
+DAYS=3650
+COUNTRY="US"
+STATE="California"
+LOCATION="San Francisco"
+ORG="OpenStack"
+ORG_UNIT="Octavia"
+CN="octavia.local"
+
+# Создание самоподписанных сертификатов и ключей
+echo "Создание сертификатов и ключей для Octavia..."
+
+# CA сертификат и ключ
+openssl req -x509 -nodes -days "$DAYS" -newkey rsa:4096 -keyout "$CERT_DIR/server_ca.key.pem" -out "$CERT_DIR/server_ca.cert.pem" -subj "/C=$COUNTRY/ST=$STATE/L=$LOCATION/O=$ORG/OU=$ORG_UNIT/CN=$CN CA"
+
+# Сертификат и ключ клиента
+openssl req -new -newkey rsa:4096 -nodes -keyout "$CERT_DIR/client.key.pem" -out "$CERT_DIR/client.csr.pem" -subj "/C=$COUNTRY/ST=$STATE/L=$LOCATION/O=$ORG/OU=$ORG_UNIT/CN=client"
+openssl x509 -req -days "$DAYS" -in "$CERT_DIR/client.csr.pem" -CA "$CERT_DIR/server_ca.cert.pem" -CAkey "$CERT_DIR/server_ca.key.pem" -CAcreateserial -out "$CERT_DIR/client.cert.pem"
+
+# Объединение клиентского сертификата и ключа
+cat "$CERT_DIR/client.cert.pem" "$CERT_DIR/client.key.pem" > "$CERT_DIR/client.cert-and-key.pem"
+
+# CA сертификат для клиента
+cp "$CERT_DIR/server_ca.cert.pem" "$CERT_DIR/client_ca.cert.pem"
+
+# Проверка
+if [[ -f "$CERT_DIR/client.cert-and-key.pem" && -f "$CERT_DIR/client_ca.cert.pem" && -f "$CERT_DIR/server_ca.cert.pem" && -f "$CERT_DIR/server_ca.key.pem" ]]; then
+    echo "Сертификаты успешно созданы и размещены в $CERT_DIR"
+else
+    echo "Ошибка: не удалось создать один или несколько сертификатов" >&2
+    exit 1
+fi
+
+# Установка прав доступа для сертификатов
+chmod 600 "$CERT_DIR"/*.pem
+echo "Права доступа для сертификатов настроены."
