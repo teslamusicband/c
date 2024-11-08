@@ -1,0 +1,14 @@
+# Устанавливаем протокол безопасности для клиента Kafka
+security.protocol=SASL_SSL
+
+# Указываем механизм аутентификации
+sasl.mechanism=SCRAM-SHA-256
+
+# Указываем путь к клиентскому файлу JAAS с учетными данными для подключения
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+    username="broker1" \
+    password="qwerty12345";
+
+# Конфигурация SSL (при необходимости)
+ssl.truststore.location=/etc/kafka/kafka.client.truststore.jks
+ssl.truststore.password=truststore-password
