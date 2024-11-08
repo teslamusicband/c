@@ -1,0 +1,55 @@
+Понял, давайте разберем несколько важных моментов, чтобы внести ясность в настройки:
+
+1. **Связь между SASL SCRAM и SSL сертификатами**:
+   - `username` в конфигурации `kafka_server_jaas.conf` для SASL SCRAM не связан с alias в SSL сертификате или keystore.
+   - SSL сертификаты используются для TLS шифрования соединения, а SASL SCRAM использует `username` и `password` для аутентификации.
+   - Поскольку SASL и SSL независимы, ошибки SASL SCRAM, связанные с `invalid credentials`, не связаны с alias или паролями из SSL-части. Вместо этого, они относятся к неправильно настроенным учетным данным SCRAM (например, `username` и `password` в `jaas.conf` и `kafka-configs.sh`).
+
+2. **Проверка настроек `kafka_server_jaas.conf`**:
+   - В вашем `kafka_server_jaas.conf` убедитесь, что у вас есть отдельные секции для `KafkaServer` и `KafkaController`, как и указано. Например:
+     ```plaintext
+     KafkaServer {
+       org.apache.kafka.common.security.scram.ScramLoginModule required
+       username="broker1"
+       password="qwerty12345";
+     };
+
+     KafkaController {
+       org.apache.kafka.common.security.scram.ScramLoginModule required
+       username="controller1"
+       password="qwerty12345";
+     };
+     ```
+   - **Не меняйте** `username="controller1"` на `broker1`, поскольку это сломает разделение учетных записей для контроллеров и брокеров. Каждая роль должна иметь свои учетные данные для аутентификации.
+
+3. **Убедитесь, что учетные записи `controller1` и `broker1` созданы с правильными паролями в Kafka**:
+   - Чтобы настроить учетные записи SCRAM, используйте `kafka-configs.sh` с теми же учетными данными, которые указаны в `kafka_server_jaas.conf`:
+     ```bash
+     kafka-configs.sh --bootstrap-server srv1.company.com:9094 --entity-type users --entity-name broker1 --alter --add-config "SCRAM-SHA-256=[password=qwerty12345]"
+     kafka-configs.sh --bootstrap-server srv1.company.com:9094 --entity-type users --entity-name controller1 --alter --add-config "SCRAM-SHA-256=[password=qwerty12345]"
+     ```
+   - Эти команды нужны, чтобы Kafka знала учетные данные `controller1` и `broker1` для SCRAM аутентификации.
+
+4. **Настройки в `server.properties`**:
+   - Убедитесь, что у вас указаны правильные конфигурации для `sasl.jaas.config` и `listener`:
+     ```properties
+     listeners=SASL_SSL://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093
+     advertised.listeners=SASL_SSL://srv1.company.com:9094
+     inter.broker.listener.name=SASL_SSL
+     controller.listener.names=CONTROLLER
+     security.inter.broker.protocol=SASL_SSL
+     sasl.mechanism.inter.broker.protocol=SCRAM-SHA-256
+     sasl.mechanism.controller.protocol=SCRAM-SHA-256
+
+     # Добавьте конфигурации SASL для каждого listener
+     listener.name.sasl_ssl.scram-sha-256.sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="broker1" password="qwerty12345";
+     listener.name.controller.scram-sha-256.sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="controller1" password="qwerty12345";
+     ```
+
+5. **Перезапуск Kafka**:
+   После внесения изменений перезапустите каждый брокер для применения настроек:
+   ```bash
+   systemctl restart kafka
+   ```
+
+Эти шаги помогут убедиться, что все учетные данные настроены корректно для SASL SCRAM и не пересекаются с SSL настройками. Если проблема все еще будет возникать, проверьте логи и убедитесь, что учетные записи `controller1` и `broker1` корректно добавлены в конфигурацию Kafka.
