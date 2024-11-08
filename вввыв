@@ -1,0 +1,92 @@
+Хорошо, давайте обновим инструкции, заменив команды для создания ключей и сертификатов на те, что вы предложили. Эти команды обеспечивают более надёжную конфигурацию и создают сертификаты с SHA-512, ключами 4096 бит и расширениями X.509. Мы используем аналогичную структуру для создания сертификатов для каждого брокера.
+
+### Обновлённые шаги для создания SSL-файлов
+
+#### 1. Создайте корневой сертификат (CA) и его ключ
+
+```bash
+openssl genrsa -out /etc/kafka/ca.key 4096
+
+openssl req -x509 -new -nodes -sha512 -days 3650 -subj "/C=CN/ST=Beijing/L=Beijing/O=example/OU=Personal/CN=srv1.company.com" -key /etc/kafka/ca.key -out /etc/kafka/ca.crt
+```
+
+- `ca.key`: закрытый ключ CA.
+- `ca.crt`: корневой сертификат CA.
+
+#### 2. Создайте ключ и CSR для каждого брокера
+
+Эти шаги нужно выполнить для каждого брокера. Например, для `srv1.company.com`:
+
+```bash
+# Генерация закрытого ключа для брокера
+openssl genrsa -out /etc/kafka/srv1.company.com.key 4096
+
+# Создание запроса на сертификат (CSR) для брокера
+openssl req -sha512 -new -subj "/C=CN/ST=Beijing/L=Beijing/O=example/OU=Personal/CN=srv1.company.com" -key /etc/kafka/srv1.company.com.key -out /etc/kafka/srv1.company.com.csr
+```
+
+#### 3. Создайте файл расширений для сертификата брокера
+
+Создайте файл `/etc/kafka/v3.ext` со следующим содержимым:
+
+```bash
+authorityKeyIdentifier=keyid,issuer
+basicConstraints=CA:FALSE
+keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1=srv1.company.com
+DNS.2=company.com
+DNS.3=srv1
+```
+
+- Замените `srv1.company.com` и `srv1` для каждого брокера на соответствующие значения.
+
+#### 4. Подпишите CSR корневым сертификатом CA для каждого брокера
+
+Подписываем CSR, используя корневой сертификат CA:
+
+```bash
+openssl x509 -req -sha512 -days 3650 -extfile /etc/kafka/v3.ext -CA /etc/kafka/ca.crt -CAkey /etc/kafka/ca.key -CAcreateserial -in /etc/kafka/srv1.company.com.csr -out /etc/kafka/srv1.company.com.crt
+```
+
+- Повторите для каждого брокера, заменяя `srv1.company.com` на его имя.
+
+#### 5. Создайте keystore и truststore для каждого брокера
+
+##### Импортируйте корневой сертификат CA в truststore брокера
+
+```bash
+# Создайте truststore и добавьте в него CA-сертификат
+keytool -keystore kafka.broker1.truststore.jks -alias CARoot -import -file /etc/kafka/ca.crt -storepass password -noprompt
+```
+
+##### Импортируйте сертификаты и ключи брокера в keystore
+
+```bash
+# Создайте keystore и добавьте в него сертификат брокера
+keytool -keystore kafka.broker1.keystore.jks -alias broker1 -importkeystore -srckeystore /etc/kafka/srv1.company.com.key -srcstorepass password -storepass password
+keytool -keystore kafka.broker1.keystore.jks -alias CARoot -import -file /etc/kafka/ca.crt -storepass password -noprompt
+```
+
+- Повторите для каждого брокера, заменяя `broker1` на имя брокера.
+
+### Конфигурация Kafka для использования SSL
+
+Теперь укажите в `server.properties` каждого брокера пути к SSL-файлам, используя соответствующие имена брокеров.
+
+```properties
+ssl.keystore.location=/etc/kafka/kafka.broker1.keystore.jks
+ssl.keystore.password=password
+ssl.key.password=password
+ssl.truststore.location=/etc/kafka/kafka.broker1.truststore.jks
+ssl.truststore.password=password
+```
+
+Настройте это для каждого брокера, изменяя путь к `keystore` и `truststore`.
+
+### Перезапустите брокеры
+
+Теперь брокеры должны корректно работать с настроенными сертификатами.
