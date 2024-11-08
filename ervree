@@ -1,0 +1,35 @@
+Ошибка "unrecognized keystore format" возникает, потому что `keytool` ожидает, что `-srckeystore` будет в формате PKCS12 или JKS, а файл `/etc/kafka/srv1.company.com.key` является PEM-ключом, который `keytool` не может импортировать напрямую.
+
+Чтобы исправить это, сначала объедините ключ и сертификат брокера в файл PKCS12, а затем импортируйте его в JKS с помощью `keytool`.
+
+### Шаги для исправления
+
+1. **Создайте PKCS12 файл**, объединив сертификат и ключ брокера:
+
+   ```bash
+   openssl pkcs12 -export -in /etc/kafka/srv1.company.com.crt -inkey /etc/kafka/srv1.company.com.key -out /etc/kafka/srv1.company.com.p12 -name broker1 -CAfile /etc/kafka/ca.crt -caname root -password pass:password
+   ```
+
+   - Замените `broker1` на уникальное имя для каждого брокера.
+   - `password` — это пароль для PKCS12 файла. Вы можете задать любой надёжный пароль.
+
+2. **Импортируйте PKCS12 файл в keystore JKS**:
+
+   ```bash
+   keytool -importkeystore -deststorepass password -destkeypass password -destkeystore kafka.broker1.keystore.jks -srckeystore /etc/kafka/srv1.company.com.p12 -srcstoretype PKCS12 -srcstorepass password -alias broker1
+   ```
+
+   - Здесь `deststorepass` и `destkeypass` — это пароль для keystore JKS.
+   - Обязательно используйте те же пароли, что и в шаге 1.
+
+3. **Импортируйте корневой сертификат (CA) в truststore**:
+
+   ```bash
+   keytool -keystore kafka.broker1.truststore.jks -alias CARoot -import -file /etc/kafka/ca.crt -storepass password -noprompt
+   ```
+
+### Повторите для каждого брокера
+
+Для других брокеров (например, `srv2.company.com`, `srv3.company.com`) используйте аналогичные команды, изменяя имена и пути к файлам, чтобы создать соответствующие keystore и truststore. 
+
+Теперь у вас должны быть корректные keystore и truststore для каждого брокера.
