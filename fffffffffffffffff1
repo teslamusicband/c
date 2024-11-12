@@ -1,0 +1,134 @@
+# /etc/kafka/connect-mirror-maker.properties
+# Основные настройки
+clusters = source1, source2, target
+clusters.source1.bootstrap.servers = source1-kafka:9092
+clusters.source2.bootstrap.servers = source2-kafka:9092
+clusters.target.bootstrap.servers = srv1.company.com:9092
+
+# Настройки безопасности для target кластера
+clusters.target.security.protocol = SASL_SSL
+clusters.target.sasl.mechanism = SCRAM-SHA-256
+clusters.target.ssl.truststore.location = /etc/kafka/kafka.broker1.truststore.jks
+clusters.target.ssl.truststore.password = password
+clusters.target.sasl.jaas.config = org.apache.kafka.common.security.scram.ScramLoginModule required username="broker1" password="password";
+
+# Настройки безопасности для source1 (plaintext)
+clusters.source1.security.protocol = PLAINTEXT
+
+# Настройки безопасности для source2 (plaintext)
+clusters.source2.security.protocol = PLAINTEXT
+
+# Настройки Connect worker
+group.id = mm2-group
+config.storage.topic = mm2-config
+offset.storage.topic = mm2-offset
+status.storage.topic = mm2-status
+config.storage.replication.factor = 3
+offset.storage.replication.factor = 3
+status.storage.replication.factor = 3
+
+# REST API настройки
+rest.port = 8083
+rest.advertised.host.name = srv1.company.com
+
+# Настройки конвертации
+key.converter = org.apache.kafka.connect.converters.ByteArrayConverter
+value.converter = org.apache.kafka.connect.converters.ByteArrayConverter
+
+# Конфигурация репликации для source1->target
+source1->target.enabled = true
+source1->target.topics = topic1
+source1->target.topics.exclude = mm2-.*
+
+# Конфигурация репликации для source2->target
+source2->target.enabled = true
+source2->target.topics = topic2
+source2->target.topics.exclude = mm2-.*
+
+# Дополнительные настройки для улучшения производительности и стабильности
+tasks.max = 10
+replication.factor = 3
+refresh.topics.interval.seconds = 10
+refresh.groups.interval.seconds = 10
+sync.topic.acls.enabled = false
+emit.checkpoints.enabled = true
+emit.heartbeats.enabled = true
+
+# Настройки для обработки ошибок соединения
+producer.override.max.request.size = 10485760
+consumer.override.max.partition.fetch.bytes = 10485760
+producer.override.compression.type = lz4
+producer.override.retries = 3
+producer.override.retry.backoff.ms = 1000
+consumer.override.session.timeout.ms = 30000
+consumer.override.heartbeat.interval.ms = 3000
+consumer.override.fetch.max.bytes = 52428800
+consumer.override.max.poll.interval.ms = 300000
+consumer.override.request.timeout.ms = 30000
+
+# Настройки SSL для повышения отказоустойчивости
+ssl.endpoint.identification.algorithm=
+producer.override.ssl.endpoint.identification.algorithm=
+consumer.override.ssl.endpoint.identification.algorithm=
+
+
+
+
+
+
+
+# Коннектор для topic1 (source1 -> target)
+{
+  "name": "mirror-maker2-source1",
+  "config": {
+    "connector.class": "org.apache.kafka.connect.mirror.MirrorSourceConnector",
+    "clusters": "source1, target",
+    "source.cluster.alias": "source1",
+    "target.cluster.alias": "target",
+    "source.cluster.bootstrap.servers": "source1-kafka:9092",
+    "target.cluster.bootstrap.servers": "srv1.company.com:9092",
+    "topics": "topic1",
+    "tasks.max": "10",
+    "replication.factor": "3",
+    "source.cluster.security.protocol": "PLAINTEXT",
+    "target.cluster.security.protocol": "SASL_SSL",
+    "target.cluster.sasl.mechanism": "SCRAM-SHA-256",
+    "target.cluster.ssl.truststore.location": "/etc/kafka/kafka.broker1.truststore.jks",
+    "target.cluster.ssl.truststore.password": "password",
+    "target.cluster.sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"broker1\" password=\"password\";",
+    "sync.topic.acls.enabled": "false",
+    "refresh.topics.interval.seconds": "10",
+    "refresh.groups.interval.seconds": "10",
+    "producer.override.retries": "3",
+    "producer.override.retry.backoff.ms": "1000",
+    "ssl.endpoint.identification.algorithm": ""
+  }
+}
+
+# Коннектор для topic2 (source2 -> target)
+{
+  "name": "mirror-maker2-source2",
+  "config": {
+    "connector.class": "org.apache.kafka.connect.mirror.MirrorSourceConnector",
+    "clusters": "source2, target",
+    "source.cluster.alias": "source2",
+    "target.cluster.alias": "target",
+    "source.cluster.bootstrap.servers": "source2-kafka:9092",
+    "target.cluster.bootstrap.servers": "srv1.company.com:9092",
+    "topics": "topic2",
+    "tasks.max": "10",
+    "replication.factor": "3",
+    "source.cluster.security.protocol": "PLAINTEXT",
+    "target.cluster.security.protocol": "SASL_SSL",
+    "target.cluster.sasl.mechanism": "SCRAM-SHA-256",
+    "target.cluster.ssl.truststore.location": "/etc/kafka/kafka.broker1.truststore.jks",
+    "target.cluster.ssl.truststore.password": "password",
+    "target.cluster.sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"broker1\" password=\"password\";",
+    "sync.topic.acls.enabled": "false",
+    "refresh.topics.interval.seconds": "10",
+    "refresh.groups.interval.seconds": "10",
+    "producer.override.retries": "3",
+    "producer.override.retry.backoff.ms": "1000",
+    "ssl.endpoint.identification.algorithm": ""
+  }
+}
