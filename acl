@@ -1,0 +1,454 @@
+```plaintext
+# 1. Создаем пользователей user3 и user4 с SCRAM-SHA-256
+/opt/kafka/bin/kafka-configs.sh --bootstrap-server srv1.company.com:9092 --entity-type users --entity-name user3 --alter --add-config "SCRAM-SHA-256=[password=User3_Password]"
+/opt/kafka/bin/kafka-configs.sh --bootstrap-server srv1.company.com:9092 --entity-type users --entity-name user4 --alter --add-config "SCRAM-SHA-256=[password=User4_Password]"
+
+# 2. Создаем ACL для user3 (доступ только к topic3)
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 --command-config /etc/kafka/client_sasl.properties \
+    --add --allow-principal User:user3 \
+    --operation Read --operation Write \
+    --topic topic3
+
+# 3. Создаем ACL для user4 (доступ только к topic4)
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 --command-config /etc/kafka/client_sasl.properties \
+    --add --allow-principal User:user4 \
+    --operation Read --operation Write \
+    --topic topic4
+
+# 4. Создаем конфигурационные файлы для Mirror Maker 2
+
+# connect-mirror-maker.properties
+bootstrap.servers=srv1.company.com:9092
+group.id=mirror-maker2-group
+config.storage.topic=connect-configs
+offset.storage.topic=connect-offsets
+status.storage.topic=connect-status
+config.storage.replication.factor=3
+offset.storage.replication.factor=3
+status.storage.replication.factor=3
+key.converter=org.apache.kafka.connect.json.JsonConverter
+value.converter=org.apache.kafka.connect.json.JsonConverter
+key.converter.schemas.enable=true
+value.converter.schemas.enable=true
+rest.port=8083
+rest.advertised.host.name=srv1.company.com
+security.protocol=SASL_SSL
+sasl.mechanism=SCRAM-SHA-256
+ssl.truststore.location=/etc/kafka/kafka.broker1.truststore.jks
+ssl.truststore.password=password
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="broker1" password="password";
+
+# source1.properties (для первого кластера без авторизации)
+cluster.name=source1
+bootstrap.servers=source1-kafka:9092
+security.protocol=PLAINTEXT
+
+# source2.properties (для второго кластера)
+cluster.name=source2
+bootstrap.servers=source2-kafka:9092
+security.protocol=PLAINTEXT
+
+# target.properties (текущий кластер с SASL_SSL)
+cluster.name=target
+bootstrap.servers=srv1.company.com:9092
+security.protocol=SASL_SSL
+sasl.mechanism=SCRAM-SHA-256
+ssl.truststore.location=/etc/kafka/kafka.broker1.truststore.jks
+ssl.truststore.password=password
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="broker1" password="password";
+
+# 5. Создаем конфигурации для user3 и user4
+# user3_client.properties
+security.protocol=SASL_SSL
+sasl.mechanism=SCRAM-SHA-256
+ssl.truststore.location=/etc/kafka/kafka.broker1.truststore.jks
+ssl.truststore.password=password
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="user3" password="User3_Password";
+
+# user4_client.properties
+security.protocol=SASL_SSL
+sasl.mechanism=SCRAM-SHA-256
+ssl.truststore.location=/etc/kafka/kafka.broker1.truststore.jks
+ssl.truststore.password=password
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="user4" password="User4_Password";
+
+# 6. JSON для создания MirrorMaker2 коннекторов через REST API
+
+# Коннектор для topic1
+curl -X POST http://localhost:8083/connectors -H "Content-Type: application/json" -d '{
+  "name": "mirror-maker2-topic1",
+  "config": {
+    "connector.class": "org.apache.kafka.connect.mirror.MirrorSourceConnector",
+    "source.cluster.alias": "source1",
+    "target.cluster.alias": "target",
+    "source.cluster.bootstrap.servers": "source1-kafka:9092",
+    "target.cluster.bootstrap.servers": "srv1.company.com:9092",
+    "topics": "topic1",
+    "source->target.enabled": "true",
+    "sync.topic.acls.enabled": "false",
+    "replication.factor": "3",
+    "target.cluster.security.protocol": "SASL_SSL",
+    "target.cluster.sasl.mechanism": "SCRAM-SHA-256",
+    "target.cluster.ssl.truststore.location": "/etc/kafka/kafka.broker1.truststore.jks",
+    "target.cluster.ssl.truststore.password": "password",
+    "target.cluster.sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"broker1\" password=\"password\";"
+  }
+}'
+
+# Коннектор для topic2
+curl -X POST http://localhost:8083/connectors -H "Content-Type: application/json" -d '{
+  "name": "mirror-maker2-topic2",
+  "config": {
+    "connector.class": "org.apache.kafka.connect.mirror.MirrorSourceConnector",
+    "source.cluster.alias": "source2",
+    "target.cluster.alias": "target",
+    "source.cluster.bootstrap.servers": "source2-kafka:9092",
+    "target.cluster.bootstrap.servers": "srv1.company.com:9092",
+    "topics": "topic2",
+    "source->target.enabled": "true",
+    "sync.topic.acls.enabled": "false",
+    "replication.factor": "3",
+    "target.cluster.security.protocol": "SASL_SSL",
+    "target.cluster.sasl.mechanism": "SCRAM-SHA-256",
+    "target.cluster.ssl.truststore.location": "/etc/kafka/kafka.broker1.truststore.jks",
+    "target.cluster.ssl.truststore.password": "password",
+    "target.cluster.sasl.jaas.config": "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"broker1\" password=\"password\";"
+  }
+}'
+
+```
+
+Для запуска Mirror Maker 2:
+
+1. Поместите все конфигурационные файлы в `/etc/kafka/`
+
+2. Запустите Mirror Maker 2:
+```bash
+/opt/kafka/bin/connect-mirror-maker.sh /etc/kafka/connect-mirror-maker.properties
+```
+
+3. После запуска выполните curl-команды для создания коннекторов.
+
+4. Проверьте статус коннекторов:
+```bash
+curl -s http://localhost:8083/connectors | jq '.'
+```
+
+Для пользователей user3 и user4:
+
+1. Передайте им соответствующие client.properties файлы
+2. Они могут использовать их так:
+```bash
+# Для user3
+kafka-console-producer.sh --bootstrap-server srv1.company.com:9092 --topic topic3 --producer.config user3_client.properties
+
+# Для user4
+kafka-console-producer.sh --bootstrap-server srv1.company.com:9092 --topic topic4 --producer.config user4_client.properties
+```
+
+Для мониторинга работы Mirror Maker 2:
+```bash
+# Проверка статуса конкретного коннектора
+curl -s http://localhost:8083/connectors/mirror-maker2-topic1/status | jq '.'
+```
+
+Важные моменты:
+1. Замените `source1-kafka:9092` и `source2-kafka:9092` на реальные адреса источников
+2. Измените пароли на более безопасные
+3. Убедитесь, что все сертификаты доступны для Mirror Maker 2
+4. Проверьте права доступа к файлам конфигурации
+
+
+
+
+
+
+
+
+Поскольку мы используем SSL в нашем кластере, клиентам также нужно передать truststore для проверки сертификата сервера. 
+
+```bash
+# 1. Создаем директории для каждого клиента
+mkdir -p /tmp/kafka-client-user3
+mkdir -p /tmp/kafka-client-user4
+
+# 2. Копируем truststore для каждого клиента
+# Это безопасно, так как truststore содержит только публичные сертификаты
+cp /etc/kafka/kafka.broker1.truststore.jks /tmp/kafka-client-user3/client.truststore.jks
+cp /etc/kafka/kafka.broker1.truststore.jks /tmp/kafka-client-user4/client.truststore.jks
+
+# 3. Создаем client.properties для user3
+cat > /tmp/kafka-client-user3/client.properties << EOF
+# Конфигурация безопасности
+security.protocol=SASL_SSL
+sasl.mechanism=SCRAM-SHA-256
+
+# SSL конфигурация
+ssl.truststore.location=./client.truststore.jks
+ssl.truststore.password=password
+ssl.endpoint.identification.algorithm=https
+
+# SASL конфигурация
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+    username="user3" \
+    password="User3_Password";
+
+# Дополнительные настройки клиента
+request.timeout.ms=20000
+retry.backoff.ms=500
+EOF
+
+# 4. Создаем client.properties для user4
+cat > /tmp/kafka-client-user4/client.properties << EOF
+# Конфигурация безопасности
+security.protocol=SASL_SSL
+sasl.mechanism=SCRAM-SHA-256
+
+# SSL конфигурация
+ssl.truststore.location=./client.truststore.jks
+ssl.truststore.password=password
+ssl.endpoint.identification.algorithm=https
+
+# SASL конфигурация
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+    username="user4" \
+    password="User4_Password";
+
+# Дополнительные настройки клиента
+request.timeout.ms=20000
+retry.backoff.ms=500
+EOF
+
+# 5. Создаем README файлы с инструкциями
+cat > /tmp/kafka-client-user3/README.txt << EOF
+Инструкция по подключению к Kafka кластеру:
+
+1. Распакуйте архив в рабочую директорию
+2. Убедитесь, что client.properties и client.truststore.jks находятся в одной директории
+3. Для проверки подключения используйте команду:
+   kafka-console-producer.sh --bootstrap-server srv1.company.com:9092 --topic topic3 --producer.config client.properties
+
+4. Для просмотра сообщений используйте:
+   kafka-console-consumer.sh --bootstrap-server srv1.company.com:9092 --topic topic3 --from-beginning --consumer.config client.properties
+
+Примечание: У вас есть доступ только к topic3. Попытки доступа к другим топикам будут отклонены.
+EOF
+
+cat > /tmp/kafka-client-user4/README.txt << EOF
+Инструкция по подключению к Kafka кластеру:
+
+1. Распакуйте архив в рабочую директорию
+2. Убедитесь, что client.properties и client.truststore.jks находятся в одной директории
+3. Для проверки подключения используйте команду:
+   kafka-console-producer.sh --bootstrap-server srv1.company.com:9092 --topic topic4 --producer.config client.properties
+
+4. Для просмотра сообщений используйте:
+   kafka-console-consumer.sh --bootstrap-server srv1.company.com:9092 --topic topic4 --from-beginning --consumer.config client.properties
+
+Примечание: У вас есть доступ только к topic4. Попытки доступа к другим топикам будут отклонены.
+EOF
+
+# 6. Создаем архивы для передачи клиентам
+cd /tmp
+tar czf kafka-client-user3.tar.gz kafka-client-user3/
+tar czf kafka-client-user4.tar.gz kafka-client-user4/
+
+# 7. Устанавливаем правильные права
+chmod 600 kafka-client-user*.tar.gz
+
+# 8. Очищаем временные директории
+rm -rf /tmp/kafka-client-user3 /tmp/kafka-client-user4
+
+echo "Архивы готовы для передачи:"
+echo "- /tmp/kafka-client-user3.tar.gz"
+echo "- /tmp/kafka-client-user4.tar.gz"
+
+```
+
+После выполнения этого скрипта вы получите два архива:
+1. `kafka-client-user3.tar.gz` - для user3
+2. `kafka-client-user4.tar.gz` - для user4
+
+Каждый архив содержит:
+- client.properties с настройками безопасности
+- client.truststore.jks для SSL соединения
+- README.txt с инструкциями
+
+Важные моменты безопасности:
+1. Передавайте архивы по защищенным каналам (например, через SFTP)
+2. Сообщите пароли отдельно по защищенному каналу связи
+3. Рекомендуйте клиентам изменить пароли после первого использования
+4. truststore можно передавать, так как он содержит только публичные сертификаты
+
+Клиенты должны:
+1. Распаковать архив
+2. Следовать инструкциям из README.txt
+3. Использовать относительный путь к truststore в client.properties (поэтому мы указали `./client.truststore.jks`)
+
+Для тестирования подключения клиенты могут использовать:
+
+```bash
+# Тест записи
+echo "test message" | kafka-console-producer.sh --bootstrap-server srv1.company.com:9092 --topic topic3 --producer.config client.properties
+
+# Тест чтения
+kafka-console-consumer.sh --bootstrap-server srv1.company.com:9092 --topic topic3 --from-beginning --consumer.config client.properties --max-messages 1
+```
+
+
+
+
+
+
+
+
+
+Настроить более строгие ACL и добавить специальные разрешения для брокеров и контроллеров.
+
+```bash
+# 1. Включаем ACL в server.properties (добавляем строки)
+echo "authorizer.class.name=kafka.security.authorizer.AclAuthorizer" >> /etc/kafka/server.properties
+echo "super.users=User:broker1;User:broker2;User:broker3;User:controller1;User:controller2;User:controller3" >> /etc/kafka/server.properties
+
+# 2. Сначала удаляем все существующие ACL (если есть)
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --remove --force
+
+# 3. Создаем ACL для user3
+# Разрешаем только необходимые операции для topic3
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --add \
+    --allow-principal User:user3 \
+    --operation Read --operation Write --operation Describe \
+    --topic topic3
+
+# Разрешаем доступ к consumer group (необходимо для чтения)
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --add \
+    --allow-principal User:user3 \
+    --operation Read \
+    --group '*'
+
+# 4. Создаем ACL для user4
+# Разрешаем только необходимые операции для topic4
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --add \
+    --allow-principal User:user4 \
+    --operation Read --operation Write --operation Describe \
+    --topic topic4
+
+# Разрешаем доступ к consumer group (необходимо для чтения)
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --add \
+    --allow-principal User:user4 \
+    --operation Read \
+    --group '*'
+
+# 5. Явно запрещаем доступ user3 к другим топикам
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --add \
+    --deny-principal User:user3 \
+    --operation All \
+    --topic '*' \
+    --resource-pattern-type prefixed
+
+# Разрешаем доступ к topic3 (перезаписывает deny)
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --add \
+    --allow-principal User:user3 \
+    --operation Read --operation Write --operation Describe \
+    --topic topic3
+
+# 6. Явно запрещаем доступ user4 к другим топикам
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --add \
+    --deny-principal User:user4 \
+    --operation All \
+    --topic '*' \
+    --resource-pattern-type prefixed
+
+# Разрешаем доступ к topic4 (перезаписывает deny)
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --add \
+    --allow-principal User:user4 \
+    --operation Read --operation Write --operation Describe \
+    --topic topic4
+
+# 7. Добавляем необходимые ACL для Mirror Maker 2
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --add \
+    --allow-principal User:broker1 \
+    --operation Read --operation Write --operation Create --operation Describe \
+    --topic topic1
+
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --add \
+    --allow-principal User:broker1 \
+    --operation Read --operation Write --operation Create --operation Describe \
+    --topic topic2
+
+# 8. Проверяем настройки ACL
+echo "Проверка ACL для user3:"
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --list --principal User:user3
+
+echo "Проверка ACL для user4:"
+/opt/kafka/bin/kafka-acls.sh --bootstrap-server srv1.company.com:9092 \
+    --command-config /etc/kafka/client_sasl.properties \
+    --list --principal User:user4
+
+```
+
+Ключевые моменты в этой конфигурации:
+
+1. **Super Users**:
+   - Брокеры и контроллеры добавлены как super users через `super.users` в server.properties
+   - Super users обходят все проверки ACL
+   - Формат: `User:username` для каждого брокера и контроллера
+
+2. **Защита по умолчанию**:
+   - Сначала устанавливаем deny для всех топиков (`--topic '*'`)
+   - Затем добавляем конкретные разрешения для нужных топиков
+   - Используем `--resource-pattern-type prefixed` для применения правил ко всем топикам
+
+3. **Минимальные права**:
+   - Read: для чтения из топика
+   - Write: для записи в топик
+   - Describe: для получения метаданных (необходимо для работы клиентов)
+   - Create: только для Mirror Maker 2 (для создания топиков)
+
+4. **Consumer Groups**:
+   - Добавлен доступ к consumer groups для возможности чтения
+   - Используется wildcard `'*'` для групп, так как имена групп могут быть динамическими
+
+5. **Проверка конфигурации**:
+   - Добавлены команды для проверки установленных ACL
+   - Рекомендуется проверять после каждого изменения
+
+После применения этих настроек:
+- Брокеры и контроллеры будут работать без ограничений
+- user3 сможет работать только с topic3
+- user4 сможет работать только с topic4
+- Mirror Maker 2 сможет работать с topic1 и topic2
+- Все остальные операции будут запрещены
+
+Для проверки можно попробовать:
+```bash
+# Должно работать
+kafka-console-producer.sh --bootstrap-server srv1.company.com:9092 --topic topic3 --producer.config user3_client.properties
+
+# Должно быть отказано
+kafka-console-producer.sh --bootstrap-server srv1.company.com:9092 --topic topic4 --producer.config user3_client.properties
+```
