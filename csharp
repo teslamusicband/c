@@ -1,0 +1,95 @@
+using Confluent.Kafka;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Security.Cryptography.X509Certificates;
+
+public class KafkaSecureConsumer
+{
+    private readonly IConsumer<string, string> _consumer;
+    private readonly string _topic;
+
+    public KafkaSecureConsumer(string bootstrapServers, string topic, string username, string password, string truststorePath, string truststorePassword)
+    {
+        _topic = topic;
+
+        var config = new ConsumerConfig
+        {
+            BootstrapServers = bootstrapServers,
+            GroupId = "secure-consumer-group",
+            AutoOffsetReset = AutoOffsetReset.Earliest,
+            
+            // Настройки безопасности
+            SecurityProtocol = SecurityProtocol.SaslSsl,
+            SaslMechanism = SaslMechanism.ScramSha256,
+            SaslUsername = username,
+            SaslPassword = password,
+
+            // SSL настройки
+            SslCaLocation = ConvertJksToPermFormat(truststorePath, truststorePassword)
+        };
+
+        _consumer = new ConsumerBuilder<string, string>(config).Build();
+    }
+
+    private string ConvertJksToPermFormat(string jksPath, string jksPassword)
+    {
+        // Создаем временный файл для хранения сертификата
+        string tempCertPath = Path.GetTempFileName();
+
+        // Загружаем JKS хранилище
+        var jksStore = new X509Certificate2(jksPath, jksPassword);
+        
+        // Сохраняем сертификат в формате PEM
+        File.WriteAllText(tempCertPath, 
+            "-----BEGIN CERTIFICATE-----\n" +
+            Convert.ToBase64String(jksStore.Export(X509ContentType.Cert), Base64FormattingOptions.InsertLineBreaks) +
+            "\n-----END CERTIFICATE-----");
+
+        return tempCertPath;
+    }
+
+    public void Subscribe()
+    {
+        _consumer.Subscribe(_topic);
+    }
+
+    public void StartConsuming(Action<string, string> messageHandler, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var consumeResult = _consumer.Consume(cancellationToken);
+                messageHandler(consumeResult.Message.Key, consumeResult.Message.Value);
+            }
+        }
+        finally
+        {
+            _consumer.Close();
+        }
+    }
+}
+
+// Пример использования:
+public class Program
+{
+    public static void Main()
+    {
+        var consumer = new KafkaSecureConsumer(
+            bootstrapServers: "your-kafka-broker:9092",
+            topic: "your-topic",
+            username: "user1",
+            password: "pass1",
+            truststorePath: "/tmp/1.jks",
+            truststorePassword: "pass1"
+        );
+
+        consumer.Subscribe();
+        
+        consumer.StartConsuming((key, value) =>
+        {
+            Console.WriteLine($"Получено сообщение: Key = {key}, Value = {value}");
+        });
+    }
+}
