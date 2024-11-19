@@ -1,0 +1,48 @@
+# Основные метрики postgres_exporter
+
+## Статистика базы данных
+- `pg_database_size_bytes` - размер базы данных в байтах
+- `pg_database_active_connections` - количество активных соединений
+- `pg_database_conflicts_total` - общее количество конфликтов
+- `pg_database_deadlocks_total` - количество deadlock'ов
+- `pg_database_temp_bytes` - использование временных файлов в байтах
+- `pg_database_temp_files` - количество временных файлов
+
+## Статистика таблиц
+- `pg_stat_user_tables_seq_scan_total` - количество последовательных сканирований
+- `pg_stat_user_tables_seq_tup_read_total` - количество строк, прочитанных при последовательном сканировании
+- `pg_stat_user_tables_idx_scan_total` - количество сканирований по индексу
+- `pg_stat_user_tables_idx_tup_fetch_total` - количество строк, полученных по индексу
+- `pg_stat_user_tables_n_tup_ins` - количество вставленных строк
+- `pg_stat_user_tables_n_tup_upd` - количество обновленных строк
+- `pg_stat_user_tables_n_tup_del` - количество удаленных строк
+- `pg_stat_user_tables_n_live_tup` - оценка количества "живых" строк
+- `pg_stat_user_tables_n_dead_tup` - оценка количества "мертвых" строк
+
+## Статистика индексов
+- `pg_stat_user_indexes_idx_scan_total` - количество сканирований индекса
+- `pg_stat_user_indexes_idx_tup_read_total` - количество записей индекса, возвращенных при сканировании
+- `pg_stat_user_indexes_idx_tup_fetch_total` - количество живых строк таблицы, полученных с помощью индекса
+
+## Блокировки
+- `pg_locks_count` - количество активных блокировок по типам
+- `pg_locks_waited` - количество ожидаемых блокировок
+
+## Statistic Collector
+- `pg_stat_bgwriter_buffers_clean_total` - количество буферов, очищенных фоновым writer'ом
+- `pg_stat_bgwriter_buffers_backend_total` - количество буферов, записанных напрямую backend'ами
+- `pg_stat_bgwriter_maxwritten_clean_total` - количество раз, когда background writer останавливался из-за достижения maxwritten
+- `pg_stat_bgwriter_buffers_alloc_total` - количество выделенных буферов
+
+## Репликация
+- `pg_stat_replication_lag_bytes` - отставание репликации в байтах
+- `pg_stat_replication_lag_seconds` - отставание репликации в секундах
+
+## WAL
+- `pg_stat_wal_bytes` - объем сгенерированного WAL в байтах
+- `pg_stat_wal_files` - количество WAL файлов
+
+## Чекпоинты
+- `pg_stat_checkpointer_timed_total` - количество запланированных чекпоинтов
+- `pg_stat_checkpointer_requested_total` - количество запрошенных чекпоинтов
+- `pg_stat_checkpointer_buf_written_total` - количество записанных буферов при чекпоинтах
