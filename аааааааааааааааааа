@@ -1,0 +1,87 @@
+Да, с помощью **`auditd`** можно настроить мониторинг доступа и действий с определёнными файлами, а также отслеживать вызовы процессов, таких как `pg_dump`, без необходимости использования Monit. Вот пошаговый процесс:
+
+---
+
+### 1. **Установите и настройте `auditd`:**
+Убедитесь, что `auditd` установлен и работает:
+```bash
+sudo apt install auditd
+sudo systemctl enable auditd
+sudo systemctl start auditd
+```
+
+---
+
+### 2. **Добавьте правила для отслеживания событий:**
+Создайте или измените файл правил **auditd**, чтобы следить за доступом к PostgreSQL или действиями с файлами. Основной файл правил:
+```bash
+sudo nano /etc/audit/rules.d/audit.rules
+```
+
+Примеры:
+
+#### a) Мониторинг вызовов `pg_dump`:
+Добавьте правило, чтобы отслеживать вызовы `pg_dump`:
+```bash
+-a always,exit -F path=/usr/bin/pg_dump -F perm=x -k pg_dump_activity
+```
+- **`-F path=/usr/bin/pg_dump`**: Указывает на исполняемый файл.
+- **`-F perm=x`**: Указывает, что нас интересуют только действия исполнения (execute).
+- **`-k pg_dump_activity`**: Назначает тег события для лёгкого поиска в логах.
+
+#### b) Мониторинг файлов PostgreSQL:
+Например, чтобы отслеживать доступ к конфигурациям PostgreSQL:
+```bash
+-w /etc/postgresql/ -p wa -k postgresql_config
+```
+- **`-w /etc/postgresql/`**: Указывает директорию или файл для отслеживания.
+- **`-p wa`**: Мониторинг на запись (write) и изменение атрибутов (attribute).
+- **`-k postgresql_config`**: Тег для фильтрации событий.
+
+#### c) Логи базы данных:
+Если база данных пишет логи в `/var/lib/postgresql/`, добавьте:
+```bash
+-w /var/lib/postgresql/ -p rwa -k postgresql_logs
+```
+
+---
+
+### 3. **Примените изменения:**
+После редактирования правил перезагрузите их:
+```bash
+sudo auditctl -R /etc/audit/rules.d/audit.rules
+```
+
+---
+
+### 4. **Проверьте логи `auditd`:**
+Все события записываются в файл `/var/log/audit/audit.log`. Для фильтрации событий используйте команду:
+```bash
+sudo ausearch -k pg_dump_activity
+```
+Для анализа доступа к файлам:
+```bash
+sudo ausearch -k postgresql_config
+```
+
+---
+
+### 5. **Интеграция с VictoriaMetrics:**
+Чтобы собирать данные из `auditd`, используйте сторонние утилиты, такие как **`go-audit`** или **`audit-exporter`**, которые могут преобразовать данные `auditd` в метрики Prometheus. 
+
+Пример настройки **audit-exporter**:
+1. Установите `audit-exporter`:
+   ```bash
+   wget https://github.com/graphite-ng/audit-exporter/releases/latest/download/audit-exporter-linux-amd64
+   chmod +x audit-exporter-linux-amd64
+   sudo mv audit-exporter-linux-amd64 /usr/local/bin/audit-exporter
+   ```
+
+2. Настройте конфигурацию `audit-exporter`, чтобы собирать нужные метрики и отправлять их в VictoriaMetrics.
+
+3. Запустите `audit-exporter`:
+   ```bash
+   sudo audit-exporter --prometheus-listen-addr=":2812"
+   ```
+
+Теперь VictoriaMetrics может собирать метрики с порта `2812`, предоставляемого `audit-exporter`.
