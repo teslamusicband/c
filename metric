@@ -1,0 +1,70 @@
+# VictoriaMetrics Config
+scrape_configs:
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['localhost:9187']
+    metric_relabel_configs:
+      - source_labels: ['__name__']
+        regex: 'pg_backup_(.*)'
+        target_label: 'myproject:data:security:postgre_db_backup'
+
+  - job_name: 'audit'
+    static_configs:
+      - targets: ['localhost:2812'] 
+    metric_relabel_configs:
+      - source_labels: ['__name__']
+        regex: 'audit_event{exe="/usr/bin/pg_dump"}'
+        target_label: 'myproject:data:security:postgre_db_backup'
+      - source_labels: ['__name__', 'path']
+        regex: 'audit_event;/var/lib/postgresql|/etc/postgresql'
+        target_label: 'myproject:data:security:postgre_db_access'
+
+# Alertmanager Config  
+global:
+  resolve_timeout: 5m
+  http_config:
+    http_send_body_max_kb: 30mb
+
+route:
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 1h
+  receiver: 'mysoftware'
+  routes:
+    - match:
+        myproject:data:security:postgre_db_backup: 'true'
+      receiver: 'mysoftware'
+      repeat_interval: 1h
+      group_by: ['alertname']
+      labels:
+        severity: 'warning'
+        alert_name: 'AppDBBackup'
+    - match:
+        myproject:data:security:postgre_db_access: 'true'
+      receiver: 'mysoftware' 
+      repeat_interval: 1h
+      group_by: ['alertname']
+      labels:
+        severity: 'warning'
+        alert_name: 'AppDBAccess'
+    - match:
+        myproject:data:security:postgre_db_backup: 'true'
+      receiver: 'mysoftware'
+      repeat_interval: 1h
+      group_by: ['alertname']
+      labels:
+        severity: 'warning'
+        alert_name: 'AppPGDumpActivity'
+    - match:
+        myproject:data:security:postgre_db_access: 'true'
+      receiver: 'mysoftware'
+      repeat_interval: 1h
+      group_by: ['alertname']
+      labels:
+        severity: 'warning'
+        alert_name: 'AppPGAccessActivity'
+
+receivers:
+- name: 'mysoftware'
+  webhook_configs:
+  - url: 'http://mysoftware:5000/'
