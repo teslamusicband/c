@@ -1,0 +1,54 @@
+Вот пример JSON-конфигурации для Kafka Mirror Maker 2 с авторизацией через логин, пароль и SSL-сертификат:
+
+```json
+{
+    "name": "mirror-maker-connector",
+    "config": {
+        "connector.class": "org.apache.kafka.connect.mirror.MirrorSourceConnector",
+        "tasks.max": 3,
+        "source.cluster.bootstrap.servers": "remote-kafka-host1:9092,remote-kafka-host2:9092",
+        "target.cluster.bootstrap.servers": "local-kafka-host1:9092,local-kafka-host2:9092",
+        
+        "source.cluster.security.protocol": "SSL",
+        "source.cluster.ssl.truststore.location": "/path/to/truststore.jks",
+        "source.cluster.ssl.truststore.password": "truststore_password",
+        
+        "source.cluster.sasl.mechanism": "PLAIN",
+        "source.cluster.sasl.jaas.config": "org.apache.kafka.common.security.plain.PlainLoginModule required username='kafka_user' password='strong_password';",
+        
+        "topics": "source-topic-1,source-topic-2",
+        "groups": "*",
+        
+        "source.cluster.ssl.endpoint.identification.algorithm": "",
+        
+        "replication.policy.class": "org.apache.kafka.connect.mirror.IdentityReplicationPolicy",
+        "sync.topic.configs.enabled": true,
+        "sync.topic.acls.enabled": true
+    }
+}
+```
+
+Основные блоки конфигурации:
+
+1. Подключение к удалённой Kafka:
+   - `source.cluster.bootstrap.servers`: список брокеров
+   - `source.cluster.security.protocol`: SSL для защищённого соединения
+
+2. SSL-авторизация:
+   - `source.cluster.ssl.truststore.location`: путь к truststore
+   - `source.cluster.ssl.truststore.password`: пароль от truststore
+
+3. SASL-авторизация:
+   - `source.cluster.sasl.mechanism`: механизм авторизации (PLAIN)
+   - `source.cluster.sasl.jaas.config`: логин и пароль 
+
+4. Настройки репликации:
+   - `topics`: список топиков для зеркалирования
+   - `groups`: какие группы потребителей копировать
+
+Рекомендации:
+- Защитите файл с конфигурацией
+- Используйте надёжные пароли
+- Проверьте корректность путей к сертификатам
+
+Не забудьте заменить плейсхолдеры на реальные значения вашей инфраструктуры.
