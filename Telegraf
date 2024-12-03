@@ -1,0 +1,57 @@
+Установка и настройка Telegraf для сбора и передачи журналов аудита на Oracle Linux 9.4 состоит из следующих шагов:
+
+1. Установка Telegraf
+```bash
+# Добавление репозитория InfluxData
+sudo wget -qO- https://repos.influxdata.com/influxdb.key | gpg --import
+sudo tee /etc/yum.repos.d/influxdata.repo <<EOF
+[influxdata]
+name = InfluxData Repository
+baseurl = https://repos.influxdata.com/stable/\$basearch/main
+enabled = 1
+gpgcheck = 1
+gpgkey = https://repos.influxdata.com/influxdb.key
+EOF
+
+# Установка Telegraf
+sudo dnf install -y telegraf
+```
+
+2. Конфигурация Telegraf
+Создайте файл конфигурации `/etc/telegraf/telegraf.conf` с указанным содержимым:
+
+```toml
+[[inputs.tail]]
+  files = ["/var/log/audit/audit.log"]
+  from_beginning = false
+  pipe = false
+  data_format = "grok"
+  grok_patterns = ["%{AUDITLOG}"]
+  
+[[outputs.victoriametrics]]
+  url = "http://victoriametrics:8428"
+```
+
+3. Настройка разрешений
+```bash
+# Убедитесь, что пользователь Telegraf имеет доступ к журналу аудита
+sudo usermod -aG adm telegraf
+```
+
+4. Запуск и включение Telegraf
+```bash
+sudo systemctl enable telegraf
+sudo systemctl start telegraf
+```
+
+5. Проверка работоспособности
+```bash
+sudo systemctl status telegraf
+```
+
+Важные замечания:
+- Убедитесь, что путь к журналу аудита `/var/log/audit/audit.log` корректен
+- Проверьте доступность хоста `victoriametrics` 
+- При необходимости настройте правила SELinux и брандмауэра
+
+Рекомендуется протестировать конфигурацию в тестовой среде перед production-развертыванием.
