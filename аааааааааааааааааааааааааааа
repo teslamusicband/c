@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# URL VictoriaMetrics
+VICTORIA_METRICS_URL="http://victoriametrics:8428/api/v1/import/prometheus"
+HOSTNAME=$(hostname)
+
+# Проверка новых записей в логах
+if grep -q "pg_dump_exec" /var/log/audit/audit.log; then
+    METRIC="pg_dump_start{host=\"${HOSTNAME}\"} 1 $(date +%s)"
+    # Отправка метрики
+    echo -e "${METRIC}" | curl -X POST -H "Content-Type: text/plain" --data-binary @- "${VICTORIA_METRICS_URL}"
+fi
