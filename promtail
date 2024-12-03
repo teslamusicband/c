@@ -1,0 +1,168 @@
+Чтобы организовать отслеживание запуска программы `/usr/bin/pg_dump` на любом сервере кластера Patroni с помощью правила auditd, а затем визуализировать это в **VictoriaMetrics+Grafana**, следуйте следующему пошаговому плану:
+
+---
+
+### **1. Настройка auditd**
+
+1. **Убедитесь, что auditd установлен и работает:**
+   ```bash
+   sudo apt update && sudo apt install auditd audispd-plugins
+   sudo systemctl enable --now auditd
+   ```
+
+2. **Добавьте правило в auditd:**
+   Откройте файл `/etc/audit/rules.d/audit.rules` и добавьте следующее правило:
+   ```bash
+   -a exit,always -F path=/usr/bin/pg_dump -F perm=x -k pg_dump_activity
+   ```
+   Здесь:
+   - `-a exit,always`: отслеживает события выхода программы.
+   - `-F path=/usr/bin/pg_dump`: фильтрует путь к бинарнику.
+   - `-F perm=x`: фильтрует выполнение программы.
+   - `-k pg_dump_activity`: добавляет метку для удобного поиска.
+
+   Примените изменения:
+   ```bash
+   sudo augenrules --load
+   ```
+
+3. **Проверьте, что правило работает:**
+   Вызовите `/usr/bin/pg_dump` и проверьте, что событие логируется:
+   ```bash
+   sudo ausearch -k pg_dump_activity
+   ```
+
+---
+
+### **2. Настройка auditd для отправки логов в journald**
+
+1. Включите **auditd logs forwarding**:
+   Отредактируйте `/etc/audisp/plugins.d/syslog.conf`:
+   ```bash
+   active = yes
+   direction = out
+   path = builtin_syslog
+   type = builtin
+   args =
+   format = string
+   ```
+
+2. Перезапустите службы:
+   ```bash
+   sudo systemctl restart auditd
+   ```
+
+3. Проверьте, что события появляются в системном журнале:
+   ```bash
+   journalctl | grep pg_dump_activity
+   ```
+
+---
+
+### **3. Настройка экспорта логов в VictoriaMetrics**
+
+1. **Установите и настройте инструмент для экспорта журналов:**
+   Используйте **Promtail** (компонент Loki), чтобы собирать логи из системного журнала и отправлять их в VictoriaMetrics.
+
+   Установите **Promtail**:
+   ```bash
+   wget https://github.com/grafana/loki/releases/latest/download/promtail-linux-amd64.zip
+   unzip promtail-linux-amd64.zip
+   chmod +x promtail-linux-amd64
+   sudo mv promtail-linux-amd64 /usr/local/bin/promtail
+   ```
+
+2. Создайте конфигурацию для Promtail:
+   Создайте файл `/etc/promtail/config.yaml`:
+   ```yaml
+   server:
+     http_listen_port: 9080
+     grpc_listen_port: 0
+
+   positions:
+     filename: /var/log/positions.yaml
+
+   clients:
+     - url: http://<victoriametrics_url>:8428/api/v1/import/prometheus
+
+   scrape_configs:
+     - job_name: journal
+       journal:
+         labels:
+           job: "auditd_logs"
+       relabel_configs:
+         - source_labels: ['_SYSTEMD_UNIT']
+           target_label: "unit"
+         - source_labels: ['_EXE']
+           target_label: "exe"
+         - source_labels: ['PRIORITY']
+           target_label: "priority"
+   ```
+
+3. Запустите Promtail:
+   ```bash
+   sudo promtail --config.file=/etc/promtail/config.yaml
+   ```
+
+---
+
+### **4. Визуализация данных в Grafana**
+
+1. **Добавьте VictoriaMetrics как источник данных:**
+   - Зайдите в Grafana → *Configuration* → *Data Sources*.
+   - Добавьте новый источник типа "Prometheus".
+   - Введите URL вашего VictoriaMetrics (`http://<victoriametrics_url>:8428`).
+
+2. **Создайте дашборд:**
+   - Откройте *Dashboards* → *New Dashboard*.
+   - Добавьте панель с запросом:
+     ```promql
+     count_over_time({job="auditd_logs", unit="pg_dump_activity"}[1h])
+     ```
+   - Настройте визуализацию: например, используйте график или счетчик.
+
+3. **Настройте оповещения:**
+   - В настройках панели добавьте *Alert*.
+   - Установите условие, например, если `count_over_time` > 0 за последние 5 минут.
+
+---
+
+### **5. Проверка всей цепочки**
+
+1. Выполните `/usr/bin/pg_dump` на любом сервере:
+   ```bash
+   sudo -u postgres /usr/bin/pg_dump > /dev/null
+   ```
+
+2. Проверьте:
+   - Логи в `journalctl | grep pg_dump_activity`.
+   - Появление данных в Grafana.
+
+---
+
+### **6. Масштабирование на кластер Patroni**
+
+1. **Распространите настройки auditd на все ноды:**
+   Используйте **Ansible** для автоматизации. Пример плейбука:
+   ```yaml
+   - name: Configure auditd for pg_dump
+     hosts: patroni_cluster
+     tasks:
+       - name: Add audit rule
+         copy:
+           dest: /etc/audit/rules.d/audit.rules
+           content: |
+             -a exit,always -F path=/usr/bin/pg_dump -F perm=x -k pg_dump_activity
+       - name: Reload audit rules
+         command: augenrules --load
+   ```
+
+2. **Убедитесь, что Promtail работает на каждой ноде:**
+   Настройте сбор логов с каждой машины.
+
+3. **Объедините данные в Grafana:**
+   Убедитесь, что лейблы, такие как `hostname`, помогают различать ноды.
+
+---
+
+Этот подход позволяет полностью автоматизировать и централизовать отслеживание, визуализацию и уведомления для запуска `pg_dump` в Patroni.
