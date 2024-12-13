@@ -1,0 +1,42 @@
+Для подключения к Hadoop кластеру с Hive в Spark-shell вам понадобится настроить несколько параметров. Вот пошаговое решение:
+
+1. Запустите spark-shell с необходимыми конфигурационными параметрами:
+
+```bash
+spark-shell \
+  --master yarn \
+  --deploy-mode client \
+  --conf "spark.sql.warehouse.dir=/user/hive/warehouse" \
+  --conf "spark.hadoop.hive.metastore.uris=thrift://srv1.company.com:9083" \
+  --conf "spark.hadoop.hive.server2.authentication=KERBEROS" \
+  --conf "spark.hadoop.hive.server2.principal=hive/srv1.company.com@REALM.COMPANY.COM" \
+  --conf "spark.hadoop.hive.metastore.kerberos.principal=hive/srv1.company.com@REALM.COMPANY.COM" \
+  --conf "spark.hadoop.hadoop.security.authentication=kerberos" \
+  --conf "spark.hadoop.hadoop.security.authorization=true" \
+  --jars /usr/hdp/current/hive-client/lib/hive-metastore-*.jar,/usr/hdp/current/hive-client/lib/hive-exec-*.jar
+```
+
+2. Перед выполнением запросов выполните Kerberos аутентификацию:
+
+```scala
+import org.apache.hadoop.security.UserGroupInformation
+UserGroupInformation.loginUserFromKeytab("your_principal@REALM.COMPANY.COM", "/path/to/your/keytab")
+```
+
+3. Настройте Hive подключение:
+
+```scala
+spark.sql("set hive.metastore.uris=thrift://srv1.company.com:9083")
+spark.sql("show databases").show()
+```
+
+Несколько важных моментов:
+- Замените `your_principal@REALM.COMPANY.COM` и `/path/to/your/keytab` на ваши реальные значения
+- Путь к jar-файлам может отличаться в зависимости от вашей HDP версии
+- Убедитесь, что у вас есть необходимые разрешения и keytab-файл
+
+Если возникнут проблемы, проверьте:
+1. Корректность principals
+2. Наличие keytab-файла
+3. Настройки Kerberos
+4. Сетевое подключение к кластеру
