@@ -1,0 +1,6 @@
+./alertmanager \
+  --log.level="debug" \
+  --log.file="/var/log/alertmanager/alertmanager.log" \
+  --log.rotation_max_size_mb=100 \
+  --log.rotation_max_backups=5 \
+  --config.file=/etc/alertmanager/alertmanager.yml
