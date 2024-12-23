@@ -1,0 +1,97 @@
+Есть несколько способов ограничить доступ к консоли:
+
+1. Отредактировать `/etc/passwd`:
+```bash
+sudo usermod -s /sbin/nologin user1
+```
+
+2. Или через PAM, добавить в `/etc/pam.d/login`:
+```bash
+auth required pam_listfile.so item=user sense=deny file=/etc/login.deniedusers onerr=succeed
+```
+
+Затем добавить user1 в `/etc/login.deniedusers`.
+
+3. Через sudoers, если нужно ограничить только root-доступ:
+```bash
+sudo visudo
+```
+Удалить все записи для user1.
+
+Первый способ наиболее надежный для полного запрета консольного доступа. Какой вариант предпочтительнее для вашего случая?
+
+
+
+
+
+
+
+
+
+
+
+
+1. Добавляем исключение в auditd:
+```bash
+# /etc/audit/rules.d/audit.rules
+# Исключаем postgres из правила логирования psql
+-a exit,never -F arch=b64 -S execve -F exe=/usr/bin/psql -F auid=26 
+
+# Перезагружаем правила
+sudo auditctl -R /etc/audit/rules.d/audit.rules
+```
+
+2. Добавляем в cron мониторинг:
+```bash
+# /etc/cron.d/pg_backup_monitor
+*/5 * * * * postgres psql -c "SELECT * FROM pg_stat_activity WHERE application_name = 'pg_dump'; SELECT * FROM pg_stat_progress_basebackup;" >> /var/log/postgres/backup_monitor.log 2>&1
+```
+
+Альтернативный подход для мониторинга бэкапа через patroni:
+```bash
+# На целевом сервере с patroni
+# /etc/audit/rules.d/audit.rules
+-w /var/log/postgresql/postgresql.log -p wa -k pg_backup
+
+# На сервере с pg_dump создаем скрипт
+#!/bin/bash
+pg_dump ... | logger -t pg_backup
+```
+
+Это позволит отслеживать бэкапы через системный журнал, не полагаясь на auditd для удаленных подключений.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Понял, для отслеживания несанкционированного доступа через pg_dump:
+
+```bash
+# /etc/audit/rules.d/audit.rules
+-a exit,always -F arch=b64 -S execve -F exe=/usr/bin/psql -k psql_access
+-a exit,never -F arch=b64 -S execve -F exe=/usr/bin/psql -F auid=26
+
+# cronjob для записи легитимных подключений
+*/1 * * * * postgres psql -c "SELECT pid,application_name,client_addr FROM pg_stat_activity WHERE application_name = 'pg_dump';" >> /var/log/postgres/legitimate_dumps.log
+```
+
+Это позволит:
+- Логировать все обращения к psql
+- Исключить системного пользователя postgres
+- Регулярно фиксировать легитимные backup-сессии
+- Сравнивать логи auditd с legitimate_dumps.log для выявления несанкционированных бэкапов
