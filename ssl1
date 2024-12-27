@@ -1,0 +1,45 @@
+Давайте разберем эту проблему пошагово. Есть несколько возможных причин и решений:
+
+1. Первое, проверьте правильность формата сертификата. Он должен быть в формате PEM:
+
+```bash
+openssl x509 -in your_cert.crt -text -noout
+```
+
+2. Убедитесь, что сертификат помещен в правильную директорию:
+```bash
+sudo cp your_cert.crt /usr/local/share/ca-certificates/
+```
+
+3. В Python-скрипте можно попробовать явно указать путь к хранилищу сертификатов. Добавьте в начало скрипта:
+
+```python
+import ssl
+import certifi
+
+ssl_context = ssl.create_default_context(cafile=certifi.where())
+# Используйте ssl_context при выполнении запроса:
+urllib.request.urlopen(url, context=ssl_context)
+```
+
+4. Если запуск происходит из cron под root, проверьте переменные окружения. Добавьте в cron:
+
+```bash
+PYTHONHTTPSVERIFY=1
+```
+
+5. Альтернативный вариант - создать отдельный контекст SSL в скрипте:
+
+```python
+import ssl
+context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+context.verify_mode = ssl.CERT_REQUIRED
+context.load_verify_locations('/path/to/your/certificate.crt')
+```
+
+6. Проверьте права доступа к сертификату:
+```bash
+sudo chmod 644 /usr/local/share/ca-certificates/your_cert.crt
+```
+
+Какой из этих методов вы уже пробовали? Также было бы полезно увидеть точный текст ошибки и фрагмент кода, который вызывает проблему.
