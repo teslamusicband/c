@@ -1,0 +1,28 @@
+#!/bin/bash
+while IFS= read -r line; do
+    # Если нашли начало нового JSON-блока
+    if [[ "$line" == "{"* ]]; then
+        # Начинаем собирать JSON
+        json_block="$line"
+        # Счетчик открытых фигурных скобок
+        open_braces=1
+        
+        # Читаем строки, пока не сбалансируем все скобки
+        while IFS= read -r line && ((open_braces > 0)); do
+            # Считаем открывающие скобки в строке
+            if [[ "$line" =~ "{" ]]; then
+                ((open_braces += $(grep -o "{" <<< "$line" | wc -l)))
+            fi
+            # Считаем закрывающие скобки в строке
+            if [[ "$line" =~ "}" ]]; then
+                ((open_braces -= $(grep -o "}" <<< "$line" | wc -l)))
+            fi
+            
+            # Добавляем строку к текущему блоку
+            json_block+=$'\n'"$line"
+        done
+        
+        # Пытаемся распарсить собранный блок
+        echo "$json_block" | jq -r '.. | .downloadUrl? | select(. != null)' 2>/dev/null
+    fi
+done < file.txt
