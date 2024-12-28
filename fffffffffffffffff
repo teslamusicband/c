@@ -1,0 +1,13 @@
+#!/bin/bash
+while IFS= read -r line; do
+    if [[ "$line" == "{"* ]]; then
+        # Начинаем собирать JSON
+        json_block="$line"
+        while IFS= read -r line && [[ "$line" != "}"* ]]; do
+            json_block+=$'\n'"$line"
+        done
+        json_block+=$'\n'"$line"
+        # Пытаемся распарсить собранный блок
+        echo "$json_block" | jq -r '.. | .downloadUrl? | select(. != null)' 2>/dev/null
+    fi
+done < file.txt
