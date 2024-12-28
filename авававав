@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# Файлы
+input_file="input_links.txt"  # Исходный файл с ссылками
+output_file="output_paths.txt"  # Файл для записи путей
+
+# Очистка выходного файла
+> "$output_file"
+
+# Обработка каждой строки
+while IFS= read -r url; do
+    # Оставляем протокол и домен, убираем все после последнего слэша
+    path="${url%/*}"
+
+    # Если путь не пустой, записываем его в выходной файл
+    if [[ -n "$path" ]]; then
+        echo "$path" >> "$output_file"
+    fi
+done < "$input_file"
+
+echo "Обработка завершена. Пути сохранены в $output_file."
