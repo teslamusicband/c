@@ -1,0 +1,150 @@
+Да, вот рабочий пример через curl. Сначала создадим пример с одной панелью, а потом скрипт для массового добавления.
+
+```bash
+# Создаём дашборд с одной панелью
+curl -X POST \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  "http://your-grafana:3000/api/dashboards/db" \
+  -d '{
+    "dashboard": {
+      "title": "PromQL Panels",
+      "panels": [{
+        "title": "Panel 1",
+        "type": "timeseries",
+        "gridPos": {
+          "x": 0,
+          "y": 0,
+          "w": 12,
+          "h": 8
+        },
+        "targets": [{
+          "datasource": {
+            "type": "prometheus",
+            "uid": "YOUR_PROMETHEUS_UID"
+          },
+          "expr": "rate(http_requests_total[5m])",
+          "refId": "A"
+        }]
+      }],
+      "schemaVersion": 36,
+      "version": 0
+    },
+    "folderId": 0,
+    "overwrite": true
+}'
+```
+
+Теперь скрипт для импорта множества запросов:
+
+```bash
+#!/bin/bash
+
+GRAFANA_URL="http://your-grafana:3000"
+API_KEY="your-api-key"
+PROMETHEUS_UID="your-prometheus-uid"
+
+# Создаём массив панелей из файла с запросами
+PANEL_JSON=""
+y_pos=0
+x_pos=0
+
+while IFS= read -r query; do
+    # Пропускаем пустые строки
+    [ -z "$query" ] && continue
+    
+    # Экранируем кавычки в запросе
+    escaped_query=$(echo "$query" | sed 's/"/\\"/g')
+    
+    # Создаём JSON для панели
+    panel=$(cat <<EOF
+{
+  "title": "Panel: $escaped_query",
+  "type": "timeseries",
+  "gridPos": {
+    "x": $x_pos,
+    "y": $y_pos,
+    "w": 12,
+    "h": 8
+  },
+  "targets": [{
+    "datasource": {
+      "type": "prometheus",
+      "uid": "$PROMETHEUS_UID"
+    },
+    "expr": "$escaped_query",
+    "refId": "A"
+  }]
+}
+EOF
+)
+
+    # Добавляем запятую, если это не первая панель
+    if [ ! -z "$PANEL_JSON" ]; then
+        PANEL_JSON="$PANEL_JSON,"
+    fi
+    PANEL_JSON="$PANEL_JSON$panel"
+
+    # Обновляем позиции (2 панели в ряд)
+    if [ $x_pos -eq 0 ]; then
+        x_pos=12
+    else
+        x_pos=0
+        y_pos=$((y_pos + 8))
+    fi
+
+done < promql_queries.txt
+
+# Создаём полный JSON дашборда
+DASHBOARD_JSON=$(cat <<EOF
+{
+  "dashboard": {
+    "title": "PromQL Queries Dashboard",
+    "panels": [$PANEL_JSON],
+    "schemaVersion": 36,
+    "version": 0,
+    "refresh": "5s"
+  },
+  "folderId": 0,
+  "overwrite": true
+}
+EOF
+)
+
+# Отправляем запрос в Grafana
+curl -X POST \
+     -H "Authorization: Bearer $API_KEY" \
+     -H "Content-Type: application/json" \
+     "$GRAFANA_URL/api/dashboards/db" \
+     -d "$DASHBOARD_JSON"
+```
+
+Использование:
+
+1. Создайте файл `promql_queries.txt` с запросами (по одному на строку):
+```text
+rate(http_requests_total[5m])
+sum by (job) (go_goroutines)
+histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+```
+
+2. Сохраните скрипт как `import_promql.sh`
+
+3. Сделайте скрипт исполняемым:
+```bash
+chmod +x import_promql.sh
+```
+
+4. Обновите переменные в начале скрипта:
+```bash
+GRAFANA_URL="http://your-grafana:3000"
+API_KEY="your-api-key"
+PROMETHEUS_UID="your-prometheus-uid"
+```
+
+5. Запустите скрипт:
+```bash
+./import_promql.sh
+```
+
+Скрипт создаст дашборд с панелями для каждого запроса, расположенными в две колонки. Если нужно изменить размер или расположение панелей, можно отредактировать параметры `gridPos` в JSON.
