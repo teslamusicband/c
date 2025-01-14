@@ -1,0 +1,104 @@
+Вот пошаговое решение через curl в bash:
+
+1. Сначала экспортируем список всех дашбордов:
+```bash
+# Создаём директорию для экспорта
+mkdir -p grafana_backup
+
+# Получаем список всех дашбордов
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+     "http://old-grafana:3000/api/search?type=dash-db" \
+     > grafana_backup/dashboards_list.json
+```
+
+2. Экспортируем каждый дашборд (используя jq для парсинга JSON):
+```bash
+# Установите jq если еще не установлен: apt-get install jq или yum install jq
+
+# Экспортируем каждый дашборд по UID
+cat grafana_backup/dashboards_list.json | jq -r '.[] | .uid' | while read uid; do
+    echo "Exporting dashboard with UID: $uid"
+    curl -H "Authorization: Bearer YOUR_API_KEY" \
+         "http://old-grafana:3000/api/dashboards/uid/$uid" \
+         > "grafana_backup/dashboard_${uid}.json"
+done
+```
+
+3. Импортируем дашборды в новый инстанс:
+```bash
+# Импортируем каждый сохранённый дашборд
+for file in grafana_backup/dashboard_*.json; do
+    echo "Importing $file"
+    # Подготавливаем JSON для импорта
+    # Извлекаем только dashboard и добавляем overwrite: true
+    cat "$file" | jq '{dashboard: .dashboard, overwrite: true, folderId: 0}' | \
+    curl -X POST \
+         -H "Authorization: Bearer NEW_API_KEY" \
+         -H "Content-Type: application/json" \
+         -d @- \
+         "http://new-grafana:3000/api/dashboards/db"
+    echo -e "\n"
+done
+```
+
+Всё это можно объединить в один скрипт:
+
+```bash
+#!/bin/bash
+
+# Конфигурация
+SOURCE_URL="http://old-grafana:3000"
+TARGET_URL="http://new-grafana:3000"
+SOURCE_API_KEY="your-source-api-key"
+TARGET_API_KEY="your-target-api-key"
+BACKUP_DIR="grafana_backup"
+
+# Создаём директорию для бэкапа
+mkdir -p "$BACKUP_DIR"
+
+echo "Exporting dashboards list..."
+curl -s -H "Authorization: Bearer $SOURCE_API_KEY" \
+     "$SOURCE_URL/api/search?type=dash-db" \
+     > "$BACKUP_DIR/dashboards_list.json"
+
+echo "Exporting individual dashboards..."
+cat "$BACKUP_DIR/dashboards_list.json" | jq -r '.[] | .uid' | while read uid; do
+    echo "Exporting dashboard: $uid"
+    curl -s -H "Authorization: Bearer $SOURCE_API_KEY" \
+         "$SOURCE_URL/api/dashboards/uid/$uid" \
+         > "$BACKUP_DIR/dashboard_${uid}.json"
+done
+
+echo "Importing dashboards to new instance..."
+for file in $BACKUP_DIR/dashboard_*.json; do
+    echo "Importing $file"
+    cat "$file" | jq '{dashboard: .dashboard, overwrite: true, folderId: 0}' | \
+    curl -s -X POST \
+         -H "Authorization: Bearer $TARGET_API_KEY" \
+         -H "Content-Type: application/json" \
+         -d @- \
+         "$TARGET_URL/api/dashboards/db"
+    echo -e "\n"
+done
+
+echo "Migration completed!"
+```
+
+Чтобы использовать этот скрипт:
+
+1. Сохраните его как `migrate_grafana.sh`
+2. Сделайте исполняемым:
+```bash
+chmod +x migrate_grafana.sh
+```
+3. Отредактируйте переменные в начале скрипта (URL и API ключи)
+4. Запустите:
+```bash
+./migrate_grafana.sh
+```
+
+Важные замечания:
+- Убедитесь, что установлен `jq` для работы с JSON
+- API ключи должны иметь соответствующие права (чтение для источника, запись для цели)
+- Скрипт перезаписывает существующие дашборды в целевом инстансе
+- Все дашборды будут импортированы в корневую папку (folderId: 0)
