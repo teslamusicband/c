@@ -1,0 +1,104 @@
+Давайте разберем проблему. Эта ошибка обычно возникает из-за неправильной структуры JSON при импорте. Проверим содержимое файла и исправим скрипт:
+
+1. Сначала посмотрим, что у нас в файле дашборда:
+```bash
+cat ./dashboard_1hfiebf.json | jq '.'
+```
+
+2. Вот исправленная версия скрипта импорта, которая должна работать:
+
+```bash
+#!/bin/bash
+
+# Конфигурация
+SOURCE_URL="http://old-grafana:3000"
+TARGET_URL="http://new-grafana:3000"
+SOURCE_API_KEY="your-source-api-key"
+TARGET_API_KEY="your-target-api-key"
+BACKUP_DIR="grafana_backup"
+
+# Создаём директорию для бэкапа
+mkdir -p "$BACKUP_DIR"
+
+echo "Exporting dashboards list..."
+curl -s -H "Authorization: Bearer $SOURCE_API_KEY" \
+     "$SOURCE_URL/api/search?type=dash-db" \
+     > "$BACKUP_DIR/dashboards_list.json"
+
+echo "Exporting individual dashboards..."
+cat "$BACKUP_DIR/dashboards_list.json" | jq -r '.[] | .uid' | while read uid; do
+    echo "Exporting dashboard: $uid"
+    curl -s -H "Authorization: Bearer $SOURCE_API_KEY" \
+         "$SOURCE_URL/api/dashboards/uid/$uid" \
+         > "$BACKUP_DIR/dashboard_${uid}.json"
+    
+    # Проверяем, что файл не пустой и содержит данные
+    if [ -s "$BACKUP_DIR/dashboard_${uid}.json" ]; then
+        # Проверяем наличие dashboard в JSON
+        if jq -e '.dashboard' "$BACKUP_DIR/dashboard_${uid}.json" > /dev/null; then
+            echo "Dashboard $uid exported successfully"
+        else
+            echo "Warning: Invalid dashboard format for $uid"
+            rm "$BACKUP_DIR/dashboard_${uid}.json"
+        fi
+    else
+        echo "Warning: Empty file for $uid"
+        rm "$BACKUP_DIR/dashboard_${uid}.json"
+    fi
+done
+
+echo "Importing dashboards to new instance..."
+for file in $BACKUP_DIR/dashboard_*.json; do
+    [ -f "$file" ] || continue  # Пропускаем, если файлов нет
+    
+    echo "Importing $file"
+    # Подготавливаем JSON для импорта, убедившись что берём только необходимые поля
+    import_json=$(cat "$file" | jq '{
+        dashboard: .dashboard,
+        folderId: 0,
+        overwrite: true,
+        message: "Imported dashboard"
+    }')
+    
+    # Проверяем, что JSON правильно сформирован
+    if [ $? -eq 0 ]; then
+        echo "$import_json" | curl -s -X POST \
+            -H "Authorization: Bearer $TARGET_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d @- \
+            "$TARGET_URL/api/dashboards/db"
+        echo -e "\n"
+    else
+        echo "Error: Failed to prepare JSON for $file"
+    fi
+done
+
+echo "Migration completed!"
+```
+
+Также можно попробовать импортировать один дашборд вручную, чтобы проверить структуру:
+
+```bash
+# Проверяем структуру JSON файла
+cat dashboard_1hfiebf.json | jq '.'
+
+# Пробуем импортировать один дашборд с подробным выводом
+cat dashboard_1hfiebf.json | \
+jq '{dashboard: .dashboard, overwrite: true, folderId: 0, message: "Import test"}' | \
+curl -v -X POST \
+     -H "Authorization: Bearer YOUR_TARGET_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d @- \
+     "http://new-grafana:3000/api/dashboards/db"
+```
+
+Если ошибка всё ещё возникает, проверьте:
+1. Правильность API ключа и его прав
+2. Доступность нового инстанса Grafana
+3. Структуру JSON в файлах дашбордов (должно быть поле .dashboard)
+4. Версии Grafana на обоих инстансах (если версии сильно различаются, могут быть проблемы с совместимостью)
+
+При необходимости можно добавить `-v` к curl для более подробного вывода:
+```bash
+curl -v -H "Authorization: Bearer $TARGET_API_KEY" ...
+```
